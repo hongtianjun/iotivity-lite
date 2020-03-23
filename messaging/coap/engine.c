@@ -752,7 +752,8 @@ coap_receive(oc_message_t *msg)
                                message->token_len, coap_status_code,
                                &msg->endpoint);
     } else {
-      coap_send_empty_response(message->type == COAP_TYPE_CON ? COAP_TYPE_ACK : COAP_TYPE_NON,
+      coap_send_empty_response(message->type == COAP_TYPE_CON ? COAP_TYPE_ACK
+                                                              : COAP_TYPE_NON,
                                message->mid, message->token, message->token_len,
                                coap_status_code, &msg->endpoint);
     }
