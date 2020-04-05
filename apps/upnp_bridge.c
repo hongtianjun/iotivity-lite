@@ -90,7 +90,7 @@ static void device_proxy_available(GUPnPControlPoint* control_point,
         // Note: UPnP udn starts with 'uuid:' (uuid starts on the 6th char)
         PRINT("Adding %s, %s to bridge... ", udn + 5, dev_name);
         app_mutex_lock(app_sync_lock);
-        int vd_index = oc_bridge_add_virtual_device((uint8_t *) udn + 5,
+        size_t vd_index = oc_bridge_add_virtual_device((uint8_t *) udn + 5,
                 strlen(udn) - 5, "upnp", "/oic/d", "oic.d.light", dev_name,
                 "ocf.2.1.0", "ocf.res.1.3.0,ocf.sh.1.3.0", NULL, NULL);
         app_mutex_unlock(app_sync_lock);
@@ -98,6 +98,36 @@ static void device_proxy_available(GUPnPControlPoint* control_point,
     }
 
     g_free(dev_name);
+}
+
+// Callback: a service has been discovered
+static void service_proxy_available(GUPnPControlPoint* control_point,
+        GUPnPServiceProxy* proxy, gpointer user_data) {
+
+    GUPnPServiceInfo* service_info = GUPNP_SERVICE_INFO(proxy);
+    const char* udn = gupnp_service_info_get_udn(service_info);
+
+    (void) control_point;
+    (void) user_data;
+
+    const char* service_type = gupnp_service_info_get_service_type(
+            service_info);
+    PRINT("\nService type: %s\n", service_type);
+    PRINT("\tUdn: %s\n", udn);
+
+    // See if virtual device exists for this uuid
+    // Note: UPnP udn starts with 'uuid:' (uuid starts on the 6th char)
+//    PRINT("Checking for uuid %s... ", udn + 5);
+    app_mutex_lock(app_sync_lock);
+    size_t vd_index = oc_bridge_get_virtual_device_index((uint8_t *) udn + 5,
+            strlen(udn) - 5, "upnp");
+    app_mutex_unlock(app_sync_lock);
+    if (vd_index > 0) {
+        PRINT("Virtual device index: %d\n", vd_index);
+        // TODO register ocf resource for upnp service
+        gupnp_service_proxy_set_subscribed(GUPNP_SERVICE_PROXY(service_info),
+                true);
+    }
 }
 
 static int app_init(void) {
@@ -192,8 +222,33 @@ static void display_menu(void) {
     PRINT("\nSelect option: ");
 }
 
-void discover_devices() {
+void discover_services() {
+    // Create a control point for all devices and services
+    GUPnPContext* context = gupnp_context_new(NULL, NULL, 0, NULL);
+//    PRINT("Created context %p\n", context);
+    GUPnPControlPoint* control_point_root = gupnp_control_point_new(context,
+            "ssdp:all");
+//    PRINT("Created control point root %p\n", control_point_root);
 
+    g_signal_connect(control_point_root, "service-proxy-available",
+            G_CALLBACK(service_proxy_available), NULL);
+
+    // Tell the Control Point to start searching
+    gssdp_resource_browser_set_active(
+            GSSDP_RESOURCE_BROWSER(control_point_root), TRUE);
+
+    // Enter the main loop. This will start the search and result in callbacks to service_proxy_available.
+    s_main_loop = g_main_loop_new(NULL, 0);
+    g_timeout_add_seconds(5, timeout_callback, s_main_loop);
+    g_main_loop_run(s_main_loop); // terminated in timeout_callback
+
+    // Clean up
+    g_object_unref(control_point_root);
+    g_object_unref(context);
+    s_main_loop = NULL;
+}
+
+void discover_devices() {
     // Create a control point for root devices
     GUPnPContext* context = gupnp_context_new(NULL, NULL, 0, NULL);
 //    PRINT("Created context %p\n", context);
@@ -217,6 +272,8 @@ void discover_devices() {
     g_object_unref(control_point_root);
     g_object_unref(context);
     s_main_loop = NULL;
+
+    discover_services();
 }
 
 void display_summary(void) {
